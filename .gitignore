@@ -1,0 +1,14 @@
+# General
+.DS_Store?
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
+# IPython Notebook
+.ipynb_checkpoints
+**/.ipynb_checkpoints/
+data.ipynb
+data/
