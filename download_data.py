@@ -109,7 +109,7 @@ if __name__ == "__main__":
         default="./data/2020intent/annotations")
     parser.add_argument(
         '--image-root',
-        default="./data/2020intent")
+        default="./data/2020intent/images")
     args = parser.parse_args()
 
     main(args.anno_root, args.image_root)
