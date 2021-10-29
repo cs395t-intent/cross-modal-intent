@@ -22,7 +22,8 @@ chmod 755 Miniconda3-latest-Linux-x86_64.sh
     * Add `conda`'s path to your `PATH` environment variable. One way of doing this is to add `PATH=${PATH}:/scratch/cluster/${USER}/miniconda3/bin/` to your `~/.profile`.
 3. Clone this repository to anywhere in your Condor scratch space.
 4. `cd` the `env/` folder of this repository and setup the environment by running `./install.sh`.
-5. Run `conda activate intent`, and test that your environment works by running the following in `python`:
+5. Run `conda activate intent`, if you get the error 'conda: command not found', run 'source /scratch/cluster/${USER}/miniconda3/etc/profile.d/conda.sh'
+6. Test that your environment works by running the following in `python`:
 ```python3
 >>> import torch
 >>> torch.cuda.is_available()
