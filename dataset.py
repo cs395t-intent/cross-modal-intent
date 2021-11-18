@@ -38,11 +38,11 @@ class Dataset(torch.utils.data.Dataset):
 
 def get_transform():
     custom_transforms = []
-    # Transform image to 3 layer RGB tensor
-    custom_transforms.append(torchvision.transforms.ToTensor())
     # The paper said they randomly resize crop to 224 × 224
     custom_transforms.append(torchvision.transforms.RandomCrop(size=(224, 224)))
     # The paper also performs a random horizontal flip
     custom_transforms.append(torchvision.transforms.RandomHorizontalFlip(p=0.5))
+    # Transform image to 3 layer RGB tensor
+    custom_transforms.append(torchvision.transforms.ToTensor())
     return torchvision.transforms.Compose(custom_transforms)
 

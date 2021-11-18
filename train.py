@@ -7,8 +7,6 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 torch.backends.cudnn.benchmark = True
 
-print(device)
-
 # Data paths
 cwd = os.getcwd()
 img_dir = os.path.join(cwd, 'data', '2020intent', 'images', 'low')
@@ -16,7 +14,7 @@ train_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', '
 val_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_val2020.json')
 
 # Parameters
-params = {'batch_size': 64,
+params = {'batch_size': 16,
           'shuffle': False,
           'num_workers': 6}
 max_epochs = 100
@@ -30,7 +28,7 @@ val_dataloader = torch.utils.data.DataLoader(val_dataset, **params)
 # Loop over epochs
 for epoch in range(max_epochs):
     # Training
-    for local_batch, local_labels in train_dataloader:
+    for i, (local_batch, local_labels) in enumerate(train_dataloader):
         # Transfer to GPU
         local_batch, local_labels = local_batch.to(device), local_labels.to(device)
         
