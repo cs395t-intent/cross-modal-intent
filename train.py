@@ -1,5 +1,8 @@
 import os
 import torch
+
+from tqdm import tqdm
+
 from dataset import Dataset, get_transform
 
 # CUDA for PyTorch
@@ -28,10 +31,10 @@ val_dataloader = torch.utils.data.DataLoader(val_dataset, **params)
 # Loop over epochs
 for epoch in range(max_epochs):
     # Training
-    for i, (local_batch, local_labels) in enumerate(train_dataloader):
+    for i, (local_batch, local_labels) in enumerate(tqdm(train_dataloader)):
         # Transfer to GPU
         local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-        
+
         # Model computations
 
     # Validation
