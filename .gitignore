@@ -12,3 +12,5 @@
 **/.ipynb_checkpoints/
 data.ipynb
 data/
+models/
+logs/

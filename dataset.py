@@ -2,10 +2,12 @@ import os
 import torch
 import torchvision
 import json
+import sys
+
 from PIL import Image
 
-class Dataset(torch.utils.data.Dataset):
 
+class Dataset(torch.utils.data.Dataset):
     def __init__(self, img_dir, annotation_path, transform=None, type='train'):
         self.transform = transform
         self.type = type
@@ -27,12 +29,13 @@ class Dataset(torch.utils.data.Dataset):
                 if self.type == 'train':
                     label = torch.FloatTensor(annotation['category_ids_softprob'])
                 else:
-                    label = torch.FloatTensor(annotation['category_ids'])
+                    label = torch.zeros(28).type(torch.LongTensor)
+                    label.scatter_(-1, torch.LongTensor(annotation['category_ids']), 1)
                 data['label'] = label
 
                 self.data.append(data)
             else:
-                print(f"WARNING: Skipping {filename} because it doesn't exist.")
+                print(f"WARNING: Skipping {filename} because it doesn't exist.", file=sys.stderr)
         file.close()
 
     def __getitem__(self, index):
@@ -47,6 +50,7 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.data)
 
+
 def get_transform():
     custom_transforms = []
     # The paper said they randomly resize crop to 224 × 224
@@ -56,4 +60,3 @@ def get_transform():
     # Transform image to 3 layer RGB tensor
     custom_transforms.append(torchvision.transforms.ToTensor())
     return torchvision.transforms.Compose(custom_transforms)
-
