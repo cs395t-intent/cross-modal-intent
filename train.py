@@ -232,7 +232,7 @@ if __name__ == "__main__":
                         default=10)
 
     parser.add_argument('--bs', help='batch size to feed to model', type=int,
-                        default=32)
+                        default=128)
     parser.add_argument('--lr', help='max learning rate', type=float,
                         default=1e-3)
     parser.add_argument('--mtm', help='sgd momentum', type=float,
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     parser.add_argument('--warmup_epochs', help='epochs to linearly increase lr', type=int,
                         default=5)
     parser.add_argument('--epochs', help='train epochs', type=int,
-                        default=30)
+                        default=50)
 
     args = parser.parse_args()
 
