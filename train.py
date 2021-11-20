@@ -232,7 +232,7 @@ if __name__ == "__main__":
                         default=10)
 
     parser.add_argument('--bs', help='batch size to feed to model', type=int,
-                        default=128)
+                        default=100)
     parser.add_argument('--lr', help='max learning rate', type=float,
                         default=1e-3)
     parser.add_argument('--mtm', help='sgd momentum', type=float,
