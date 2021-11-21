@@ -60,6 +60,11 @@ def get_transform(type):
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ]),
+        'train_no_aug': torchvision.transforms.Compose([
+            torchvision.transforms.Resize(size=(224, 224)),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
         'val': torchvision.transforms.Compose([
             torchvision.transforms.Resize(size=224),
             torchvision.transforms.CenterCrop(size=224),

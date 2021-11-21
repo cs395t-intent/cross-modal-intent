@@ -26,7 +26,10 @@ def initialize(args):
     val_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_val2020.json')
 
     # Training and validation set
-    train_dataset = Dataset(img_dir, train_annotation_path, get_transform(type='train'), type='train')
+    train_transform_type = 'train'
+    if args.use_loc_loss:
+        train_transform_type = 'train_no_aug'
+    train_dataset = Dataset(img_dir, train_annotation_path, get_transform(type=train_transform_type), type='train')
     #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.bs, shuffle=True, num_workers=6, drop_last=True)
     val_dataset = Dataset(img_dir, val_annotation_path, get_transform(type='val'), type='val')
@@ -142,9 +145,11 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
             writer.add_scalar('lr', scheduler.get_last_lr()[0], step)
 
             local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-            optimizer.zero_grad()
             logits = model(local_batch)
             loss, loss_info = loss_fn(model, local_batch, logits, local_labels, ids)
+
+            # Backprop
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             if scheduler is not None:
@@ -188,7 +193,6 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
 
                 # Log everything
                 logits = model(local_batch)
-                optimizer.zero_grad()
                 loss, loss_info = loss_fn(model, local_batch, logits,
                                   (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
                                   ids)
