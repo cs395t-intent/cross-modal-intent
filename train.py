@@ -27,7 +27,7 @@ def initialize(args):
 
     # Training and validation set
     train_transform_type = 'train'
-    if args.use_loc_loss:
+    if args.train_no_aug:
         train_transform_type = 'train_no_aug'
     train_dataset = Dataset(img_dir, train_annotation_path, get_transform(type=train_transform_type), type='train')
     #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
@@ -92,7 +92,7 @@ def initialize(args):
     # Loss function specification
     ce_loss_fn = nn.CrossEntropyLoss()
     if args.use_loc_loss:
-        loc_loss_fn = LocalizationLoss()
+        loc_loss_fn = LocalizationLoss(cam_alpha=args.loc_loss_alpha)
 
     def loss_fn(model, batch, logits, target, ids):
         total_loss, loss_info = 0, {}
@@ -251,6 +251,7 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
+    # Train Params
     parser.add_argument('--model_type', help='model type from model.py', choices=['vis_baseline'],
                         default='vis_baseline')
     parser.add_argument('--name', help='name of the model, saved at models/',
@@ -263,6 +264,7 @@ if __name__ == "__main__":
     parser.add_argument('--save_epochs', help='every how many epochs to save the model', type=int,
                         default=10)
 
+    # Optimizer Params
     parser.add_argument('--bs', help='batch size to feed to model', type=int,
                         default=50)
     parser.add_argument('--lr', help='max learning rate', type=float,
@@ -276,7 +278,14 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', help='train epochs', type=int,
                         default=50)
 
+    # Dataset Params
+    parser.add_argument('--train_no_aug', help='do not use data augmentation during training',
+                        action='store_true')
+
+    # Loss Params
     parser.add_argument('--use_loc_loss', help='use localization loss', action='store_true')
+    parser.add_argument('--loc_loss_alpha', help='localization loss weight', type=float,
+                        default=0.1)
 
     args = parser.parse_args()
 
