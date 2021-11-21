@@ -8,6 +8,7 @@ from sklearn.metrics import f1_score
 from tqdm import tqdm
 
 from dataset import Dataset, get_transform
+from loc_loss import *
 from model import *
 from utils import save_model
 
@@ -26,7 +27,7 @@ def initialize(args):
 
     # Training and validation set
     train_dataset = Dataset(img_dir, train_annotation_path, get_transform(type='train'), type='train')
-    #train_dataset = torch.utils.data.Subset(train_dataset, range(300))
+    #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.bs, shuffle=True, num_workers=6, drop_last=True)
     val_dataset = Dataset(img_dir, val_annotation_path, get_transform(type='val'), type='val')
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.bs, shuffle=False, num_workers=6, drop_last=False)
@@ -85,14 +86,33 @@ def initialize(args):
                 lr_lambda=warmup_lambda_gen(warmup_steps),
                 last_epoch=start_epoch*train_len - 1)
 
-    # Criterion specification
-    criterion = nn.CrossEntropyLoss()
+    # Loss function specification
+    ce_loss_fn = nn.CrossEntropyLoss()
+    if args.use_loc_loss:
+        loc_loss_fn = LocalizationLoss()
 
-    return train_dataloader, val_dataloader, model, optimizer, scheduler, criterion, \
+    def loss_fn(model, batch, logits, target, ids):
+        total_loss, loss_info = 0, {}
+
+        # Cross Entropy
+        ce_loss = ce_loss_fn(logits, target)
+        loss_info['ce_loss'] = ce_loss
+        total_loss += ce_loss
+
+        # Localization
+        if args.use_loc_loss:
+            with torch.set_grad_enabled(True):
+                loc_loss = loc_loss_fn(model, batch, ids, target)
+            loss_info['loc_loss'] = loc_loss
+            total_loss += loc_loss
+
+        return total_loss, loss_info
+
+    return train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, \
         start_epoch, device, metadata, cwd
 
 
-def train(train_dataloader, val_dataloader, model, optimizer, scheduler, criterion,
+def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn,
           start_epoch, device, metadata, cwd, args):
     # Setup logger
     logs_dir = os.path.join(cwd, 'logs', args.name)
@@ -117,14 +137,14 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, criteri
         # Training
         model.train()
         train_losses, train_preds, train_targets = [], [], []
-        for local_batch, local_labels in tqdm(train_dataloader):
+        for local_batch, local_labels, ids in tqdm(train_dataloader):
             # Log the LR to be used
             writer.add_scalar('lr', scheduler.get_last_lr()[0], step)
 
             local_batch, local_labels = local_batch.to(device), local_labels.to(device)
             optimizer.zero_grad()
             logits = model(local_batch)
-            loss = criterion(logits, local_labels)
+            loss, loss_info = loss_fn(model, local_batch, logits, local_labels, ids)
             loss.backward()
             optimizer.step()
             if scheduler is not None:
@@ -139,6 +159,9 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, criteri
             train_preds.extend(preds)
             train_targets.extend(targets)
             writer.add_scalar('train/loss', loss, step)
+            for key in loss_info:
+                part_loss = loss_info[key].detach().cpu().numpy()
+                writer.add_scalar(f'train/{key}', part_loss, step)
 
             step += 1
 
@@ -157,22 +180,27 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, criteri
         print(f"Epoch {epoch} Train | Loss {loss:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f} | Samples F1 {samples_f1:.4f}")
 
         # Validation
-        val_losses, val_count, val_preds, val_targets = [], [], [], []
         with torch.set_grad_enabled(False):
             model.eval()
-            for local_batch, local_labels in tqdm(val_dataloader):
-                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+            val_losses, val_count, val_preds, val_targets = [], [], [], []
+            for local_batch, local_labels, ids in tqdm(val_dataloader):
+                local_batch = local_batch.to(device)
 
                 # Log everything
                 logits = model(local_batch)
-                loss = criterion(logits, local_labels / torch.sum(local_labels, dim=-1)[:, None].to(device))
+                optimizer.zero_grad()
+                loss, loss_info = loss_fn(model, local_batch, logits,
+                                  (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
+                                  ids)
                 loss = loss.detach().cpu().numpy()
+                for key in loss_info:
+                    loss_info[key].detach().cpu()
                 preds = torch.nn.functional.softmax(logits.detach().cpu(), dim=-1)
                 preds = (preds >= 1/28).type(torch.LongTensor).tolist()
                 val_losses.append(loss * local_batch.shape[0])
                 val_count.append(local_batch.shape[0])
                 val_preds.extend(preds)
-                val_targets.extend(local_labels.detach().cpu().tolist())
+                val_targets.extend(local_labels.tolist())
 
         # Validation Metadata Logs
         loss = sum(val_losses) / sum(val_count)
@@ -232,7 +260,7 @@ if __name__ == "__main__":
                         default=10)
 
     parser.add_argument('--bs', help='batch size to feed to model', type=int,
-                        default=100)
+                        default=50)
     parser.add_argument('--lr', help='max learning rate', type=float,
                         default=1e-3)
     parser.add_argument('--mtm', help='sgd momentum', type=float,
@@ -244,16 +272,19 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', help='train epochs', type=int,
                         default=50)
 
+    parser.add_argument('--use_loc_loss', help='use localization loss', action='store_true')
+
     args = parser.parse_args()
 
     # Initialize
-    train_dataloader, val_dataloader, model, optimizer, scheduler, criterion, \
+    train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, \
             start_epoch, device, metadata, cwd = initialize(args)
 
     # Get model summary
     model.eval()
     summary(model, torch.zeros(args.bs, 3, 224, 224))
+    print(model)
 
     # Train the model
-    train(train_dataloader, val_dataloader, model, optimizer, scheduler, criterion,
+    train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn,
           start_epoch, device, metadata, cwd, args)

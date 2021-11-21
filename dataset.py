@@ -21,7 +21,7 @@ class Dataset(torch.utils.data.Dataset):
             # Now add '.jpg' to each ID and join with the image directory to get each image filename
             filename = os.path.join(self.img_dir, id + '.jpg')
             if os.path.exists(filename):
-                data = {'filename': filename}
+                data = {'filename': filename, 'id': id}
 
                 # Get the corresponding label for this image
                 # The training dataset returns probabilities for each category
@@ -45,7 +45,8 @@ class Dataset(torch.utils.data.Dataset):
             # Can add further transformations in the get_transform() method below
             img = self.transform(img)
         label = self.data[index]['label']
-        return img, label
+        id = self.data[index]['id']
+        return img, label, id
 
     def __len__(self):
         return len(self.data)

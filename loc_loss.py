@@ -13,15 +13,18 @@ import numpy as np
 
 import torchvision
 logger = logging.getLogger("intentology_trainer")
+
+from model import *
+
 CAM_REGULATE_CLS = {
     'object': [0, 3, 10, 11, 12, 16, 23],
     'context': [7, 8],
 }
 # TODO: change this for your dir for the coco_maskrcnn.json
-MASK_ROOT = "/checkpoint/menglin/projects/2020intent"
+MASK_ROOT = "./data/2020intent"
 
 
-class Localizationloss(nn.Module):
+class LocalizationLoss(nn.Module):
     '''
     regulate localization for specific classes, so the model can focus on obj/context more. The default value is what we used in the paper
     Args:
@@ -35,7 +38,7 @@ class Localizationloss(nn.Module):
         binary_cam_mask=False,
         binary_target_mask=True
     ):
-        super(Localizationloss, self).__init__()
+        super(LocalizationLoss, self).__init__()
         self.device = torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu'
         )
@@ -75,14 +78,21 @@ class Localizationloss(nn.Module):
 
     def _get_CAM(self, model, X, cls_idx):
         # TODO: this here should be changed according to your model defintion.
-        if isinstance(X, tuple):  # image + hs
-            layer = model.feature_getter.images.model.layer4
-        else:  # image model only
-            layer = model.feature_getter.model.layer4
+        #if isinstance(X, tuple):  # image + hs
+        #    layer = model.feature_getter.images.model.layer4
+        #else:  # image model only
+        #    layer = model.feature_getter.model.layer4
+        if isinstance(model, ResNetVisualBaseline):
+            layer = model.model.layer4
+        else:
+            raise Exception("Localization loss not implemented for model.")
 
         with GradCam(model, [layer]) as gcam:
-            out_b = gcam(X, image_ids="")[1]  # [bs, C]
-            out_b[:, cls_idx].mean().backward()
+            if isinstance(model, ResNetVisualBaseline):
+                out_b = gcam(X) # [bs, C]
+                out_b[:, cls_idx].mean().backward()
+            else:
+                raise Exception("Localization loss not implemented for model.")
 
             gcam_b = gcam.get(layer)  # [bs, 1, fmpH, fmpW]
             norm_img = normalize(gcam_b)  # [bs, 1, fmpH, fmpW]
@@ -117,9 +127,9 @@ class Localizationloss(nn.Module):
         if self.binary_target:
             targets = (targets > 1 / 3).type(torch.float).to(self.device)
 
-        # torch.Size([128, 28, 7, 7])
+        # torch.Size([bs, 28, 7, 7])
         CAM_masks = self.get_CAM(model, X, batch_size, total_cls).to(self.device)
-        # torch.Size([128, 1, 7, 7])
+        # torch.Size([bs, 1, 7, 7])
         obj_masks = self.get_objmasks(image_ids).to(self.device)
 
         # get CAM_masks for obj/context seperately:
@@ -189,7 +199,7 @@ class GradCam:
 
         for layer in layers:
             self.hooks.append(layer.register_forward_hook(forward_hook))
-            self.hooks.append(layer.register_backward_hook(backward_hook))
+            self.hooks.append(layer.register_full_backward_hook(backward_hook))
 
     def close(self):
         for hook in self.hooks:
