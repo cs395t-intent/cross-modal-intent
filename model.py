@@ -4,14 +4,14 @@ import torch.nn as nn
 
 
 class ResNetVisualBaseline(nn.Module):
-    def __init__(self, out_dim=28):
+    def __init__(self, out_dim=28, pi_bias=0.01):
         super(ResNetVisualBaseline, self).__init__()
 
         self.model = models.resnet50(pretrained=True)
         self.model.fc = nn.Linear(in_features=2048, out_features=out_dim, bias=True)
 
         # Bias initialization in Appendix A
-        nn.init.constant_(self.model.fc.bias, -torch.log((torch.tensor(1) - 0.01) / 0.01))
+        nn.init.constant_(self.model.fc.bias, -torch.log((torch.tensor(1) - pi_bias) / pi_bias))
 
     def forward(self, x):
         logits = self.model(x)

@@ -25,10 +25,10 @@ def initialize(args):
     val_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_val2020.json')
 
     # Training and validation set
-    train_dataset = Dataset(img_dir, train_annotation_path, get_transform(), type='train')
+    train_dataset = Dataset(img_dir, train_annotation_path, get_transform(type='train'), type='train')
     #train_dataset = torch.utils.data.Subset(train_dataset, range(300))
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.bs, shuffle=True, num_workers=6, drop_last=True)
-    val_dataset = Dataset(img_dir, val_annotation_path, get_transform(), type='val')
+    val_dataset = Dataset(img_dir, val_annotation_path, get_transform(type='val'), type='val')
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.bs, shuffle=False, num_workers=6, drop_last=False)
 
     # Setup directories

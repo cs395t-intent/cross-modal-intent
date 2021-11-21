@@ -51,12 +51,25 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.data)
 
 
-def get_transform():
-    custom_transforms = []
-    # The paper said they randomly resize crop to 224 × 224
-    custom_transforms.append(torchvision.transforms.RandomResizedCrop(size=(224, 224)))
-    # The paper also performs a random horizontal flip
-    custom_transforms.append(torchvision.transforms.RandomHorizontalFlip(p=0.5))
-    # Transform image to 3 layer RGB tensor
-    custom_transforms.append(torchvision.transforms.ToTensor())
-    return torchvision.transforms.Compose(custom_transforms)
+def get_transform(type):
+    data_transforms = {
+        'train': torchvision.transforms.Compose([
+            torchvision.transforms.RandomResizedCrop(size=224),
+            torchvision.transforms.RandomHorizontalFlip(p=0.5),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+        'val': torchvision.transforms.Compose([
+            torchvision.transforms.Resize(size=224),
+            torchvision.transforms.CenterCrop(size=224),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+        'test': torchvision.transforms.Compose([
+            torchvision.transforms.Resize(size=224),
+            torchvision.transforms.CenterCrop(size=224),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+    }
+    return data_transforms[type]
