@@ -285,7 +285,7 @@ if __name__ == "__main__":
     # Loss Params
     parser.add_argument('--use_loc_loss', help='use localization loss', action='store_true')
     parser.add_argument('--loc_loss_alpha', help='localization loss weight', type=float,
-                        default=0.1)
+                        default=1.0)
 
     args = parser.parse_args()
 

@@ -36,3 +36,18 @@ True
 2. Download the annotations to `./data/2020intent/annotations/` as indicated in [DATA.md](DATA.md), which are the [intentonomy_train2020.json](https://cornell.box.com/s/rff4fuq20t7tc4edx2wl0golh64zf9qh), [intentonomy_val2020.json](https://cornell.box.com/s/rff4fuq20t7tc4edx2wl0golh64zf9qh), [intentonomy_test2020.json](https://cornell.box.com/s/3ep2w96qf91w9qvqop2ri95g0e3fx4zj) files.
 3. Open up a `tmux`, `cd` to this repository, and run `python3 download_data.py`.
 4. You can use `ctrl+b` then `d` to temporarily minimize the tmux, then run `tmux attach` to reconnect to it. This allows you to download the dataset in the background, even when you log off.
+## Train Command
+Here's an example command:
+```bash
+python3 -m train \
+    --name baseline \
+    --model_type vis_baseline \
+    --bs 50 \
+    --lr 1e-3 \
+    --linear_warmup \
+    --warmup_epochs 5 \
+    --epochs 50 \
+    --use_loc_loss \
+    --loc_loss_alpha 1.0
+```
+The model will be trained and saved at `models/baseline` and logged at `logs/baseline`. You can use `tensorboard --logdir logs` to view it. This command correspond to training with batch size 50, learning rate of 0.001, linearly increase learning rate from 0 to 0.001 for the first 5 epochs, training for 50 epochs, and use the localization loss.
