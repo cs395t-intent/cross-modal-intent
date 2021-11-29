@@ -60,6 +60,8 @@ def initialize(args):
     model = None
     if args.model_type == 'vis_baseline':
         model = ResNetVisualBaseline()
+    elif args.model_type == 'vis_virtex':
+        model = VirtexVisual()
     else:
         raise NotImplementedError("Other models are not implemented.")
     if checkpoint is not None:
@@ -252,7 +254,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Train Params
-    parser.add_argument('--model_type', help='model type from model.py', choices=['vis_baseline'],
+    parser.add_argument('--model_type', help='model type from model.py', choices=['vis_baseline', 'vis_virtex'],
                         default='vis_baseline')
     parser.add_argument('--name', help='name of the model, saved at models/',
                         default='model')

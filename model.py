@@ -18,6 +18,22 @@ class ResNetVisualBaseline(nn.Module):
         return logits
 
 
+class VirtexVisual(nn.Module):
+    def __init__(self, out_dim=28, pi_bias=0.01):
+        super(VirtexVisual, self).__init__()
+
+        self.model = torch.hub.load("kdexd/virtex", "resnet50", pretrained=True)
+        self.model.avgpool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.model.fc = nn.Linear(in_features=2048, out_features=out_dim, bias=True)
+
+        # Bias initialization in Appendix A
+        nn.init.constant_(self.model.fc.bias, -torch.log((torch.tensor(1) - pi_bias) / pi_bias))
+
+    def forward(self, x):
+        logits = self.model(x)
+        return logits
+
+
 class HashTagNetwork(nn.Module):
     def __init__(self, input_dim):
         super(NeuralNetwork, self).__init__()
