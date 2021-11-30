@@ -62,13 +62,22 @@ def initialize(args):
         model = ResNetVisualBaseline()
     elif args.model_type == 'vis_virtex':
         model = VirtexVisual()
+    elif args.model_type == 'vis_swin_tiny':
+        model = SwinTransformerVisual(model_size='tiny')
+    elif args.model_type == 'vis_swin_small':
+        model = SwinTransformerVisual(model_size='small')
+    elif args.model_type == 'vis_swin_base':
+        model = SwinTransformerVisual(model_size='base')
     else:
         raise NotImplementedError("Other models are not implemented.")
     if checkpoint is not None:
         model.load_state_dict(checkpoint['model_state_dict'])
 
     # Optimizer specification
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.mtm)
+    if args.opt_type == 'sgd':
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.mtm)
+    elif args.opt_type == 'adamw':
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     if checkpoint is not None:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         for state in optimizer.state.values():
@@ -144,7 +153,8 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         train_losses, train_preds, train_targets = [], [], []
         for local_batch, local_labels, ids in tqdm(train_dataloader):
             # Log the LR to be used
-            writer.add_scalar('lr', scheduler.get_last_lr()[0], step)
+            if scheduler is not None:
+                writer.add_scalar('lr', scheduler.get_last_lr()[0], step)
 
             local_batch, local_labels = local_batch.to(device), local_labels.to(device)
             logits = model(local_batch)
@@ -254,7 +264,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Train Params
-    parser.add_argument('--model_type', help='model type from model.py', choices=['vis_baseline', 'vis_virtex'],
+    parser.add_argument('--model_type', help='model type from model.py', choices=['vis_baseline', 'vis_virtex', 'vis_swin_tiny', 'vis_swin_small', 'vis_swin_base'],
                         default='vis_baseline')
     parser.add_argument('--name', help='name of the model, saved at models/',
                         default='model')
@@ -267,12 +277,16 @@ if __name__ == "__main__":
                         default=10)
 
     # Optimizer Params
+    parser.add_argument('--opt_type', help='optimizer type', choices=['sgd', 'adamw'],
+                        default='sgd')
     parser.add_argument('--bs', help='batch size to feed to model', type=int,
                         default=50)
     parser.add_argument('--lr', help='max learning rate', type=float,
                         default=1e-3)
     parser.add_argument('--mtm', help='sgd momentum', type=float,
                         default=0.9)
+    parser.add_argument('--wd', help='weight decay', type=float,
+                        default=0)
     parser.add_argument('--linear_warmup', help='linearly increase lr in the first few epochs from lr 0',
                         action='store_true')
     parser.add_argument('--warmup_epochs', help='epochs to linearly increase lr', type=int,

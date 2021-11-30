@@ -6,3 +6,4 @@ torchsummaryx==1.3.0
 tqdm==4.62.3
 opencv-python==4.5.4.58
 pycocotools==2.0.2
+timm==0.4.12
