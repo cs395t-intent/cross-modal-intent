@@ -101,15 +101,16 @@ def initialize(args):
                 last_epoch=start_epoch*train_len - 1)
 
     # Loss function specification
-    ce_loss_fn = nn.CrossEntropyLoss()
+    ce_loss_fn = nn.BCELoss()
     if args.use_loc_loss:
         loc_loss_fn = LocalizationLoss(cam_alpha=args.loc_loss_alpha)
 
     def loss_fn(model, batch, logits, target, ids):
         total_loss, loss_info = 0, {}
 
-        # Cross Entropy
-        ce_loss = ce_loss_fn(logits, target)
+        # Binary Cross Entropy
+        sig = nn.Sigmoid()
+        ce_loss = ce_loss_fn(sig(logits), target)
         loss_info['ce_loss'] = ce_loss
         total_loss += ce_loss
 
@@ -136,13 +137,13 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
     metadata.setdefault('train', {})
     metadata.setdefault('val', {})
     metadata['train'].setdefault('loss', [])
-    metadata['train'].setdefault('macro_f1', [])
-    metadata['train'].setdefault('micro_f1', [])
-    metadata['train'].setdefault('samples_f1', [])
+    #metadata['train'].setdefault('macro_f1', [])
+    #metadata['train'].setdefault('micro_f1', [])
+    #metadata['train'].setdefault('samples_f1', [])
     metadata['val'].setdefault('loss', [])
-    metadata['val'].setdefault('macro_f1', [])
-    metadata['val'].setdefault('micro_f1', [])
-    metadata['val'].setdefault('samples_f1', [])
+    #metadata['val'].setdefault('macro_f1', [])
+    #metadata['val'].setdefault('micro_f1', [])
+    #metadata['val'].setdefault('samples_f1', [])
 
     # Loop over epochs
     model = model.to(device)
@@ -171,7 +172,7 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
             loss = loss.detach().cpu().numpy()
             preds = torch.nn.functional.softmax(logits.detach().cpu(), dim=-1)
             preds = (preds >= 1/28).type(torch.LongTensor).tolist()
-            targets = (local_labels.detach().cpu() >= 1/28).type(torch.LongTensor).tolist()
+            targets = (local_labels.detach().cpu() >= 1/997).type(torch.LongTensor).tolist()
             train_losses.append(loss)
             train_preds.extend(preds)
             train_targets.extend(targets)
@@ -184,35 +185,35 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
 
         # Train Metadata Logs
         loss = sum(train_losses) / len(train_losses)
-        micro_f1 = f1_score(train_targets, train_preds, average='micro')
-        macro_f1 = f1_score(train_targets, train_preds, average='macro')
-        samples_f1 = f1_score(train_targets, train_preds, average='samples')
+        #micro_f1 = f1_score(train_targets, train_preds, average='micro')
+        #macro_f1 = f1_score(train_targets, train_preds, average='macro')
+        #samples_f1 = f1_score(train_targets, train_preds, average='samples')
         metadata['train']['loss'].append(loss)
-        metadata['train']['micro_f1'].append(micro_f1)
-        metadata['train']['macro_f1'].append(macro_f1)
-        metadata['train']['samples_f1'].append(samples_f1)
-        writer.add_scalar('train/micro_f1', micro_f1, step)
-        writer.add_scalar('train/macro_f1', macro_f1, step)
-        writer.add_scalar('train/samples_f1', samples_f1, step)
-        print(f"Epoch {epoch} Train | Loss {loss:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f} | Samples F1 {samples_f1:.4f}")
+        #metadata['train']['micro_f1'].append(micro_f1)
+        #metadata['train']['macro_f1'].append(macro_f1)
+        #metadata['train']['samples_f1'].append(samples_f1)
+        #writer.add_scalar('train/micro_f1', micro_f1, step)
+        #writer.add_scalar('train/macro_f1', macro_f1, step)
+        #writer.add_scalar('train/samples_f1', samples_f1, step)
+        print(f"Epoch {epoch} Train | Loss {loss:.4f}")
 
         # Validation
         with torch.set_grad_enabled(False):
             model.eval()
             val_losses, val_count, val_preds, val_targets = [], [], [], []
             for local_batch, local_labels, ids in tqdm(val_dataloader):
-                local_batch = local_batch.to(device)
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
 
                 # Log everything
                 logits = model(local_batch)
                 loss, loss_info = loss_fn(model, local_batch, logits,
-                                  (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
+                                  local_labels,
                                   ids)
                 loss = loss.detach().cpu().numpy()
                 for key in loss_info:
                     loss_info[key].detach().cpu()
                 preds = torch.nn.functional.softmax(logits.detach().cpu(), dim=-1)
-                preds = (preds >= 1/28).type(torch.LongTensor).tolist()
+                preds = (preds >= 1/997).type(torch.LongTensor).tolist()
                 val_losses.append(loss * local_batch.shape[0])
                 val_count.append(local_batch.shape[0])
                 val_preds.extend(preds)
@@ -220,22 +221,22 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
 
         # Validation Metadata Logs
         loss = sum(val_losses) / sum(val_count)
-        micro_f1 = f1_score(val_targets, val_preds, average='micro')
-        macro_f1 = f1_score(val_targets, val_preds, average='macro')
-        samples_f1 = f1_score(val_targets, val_preds, average='samples')
+        #micro_f1 = f1_score(val_targets, val_preds, average='micro')
+        #macro_f1 = f1_score(val_targets, val_preds, average='macro')
+        #samples_f1 = f1_score(val_targets, val_preds, average='samples')
         best_loss = loss < min(metadata['val']['loss'], default=10000)
-        best_micro_f1 = micro_f1 > max(metadata['val']['micro_f1'], default=0)
-        best_macro_f1 = macro_f1 > max(metadata['val']['macro_f1'], default=0)
-        best_samples_f1 = samples_f1 > max(metadata['val']['samples_f1'], default=0)
+        #best_micro_f1 = micro_f1 > max(metadata['val']['micro_f1'], default=0)
+        #best_macro_f1 = macro_f1 > max(metadata['val']['macro_f1'], default=0)
+        #best_samples_f1 = samples_f1 > max(metadata['val']['samples_f1'], default=0)
         metadata['val']['loss'].append(loss)
-        metadata['val']['micro_f1'].append(micro_f1)
-        metadata['val']['macro_f1'].append(macro_f1)
-        metadata['val']['samples_f1'].append(samples_f1)
+        #metadata['val']['micro_f1'].append(micro_f1)
+        #metadata['val']['macro_f1'].append(macro_f1)
+        #metadata['val']['samples_f1'].append(samples_f1)
         writer.add_scalar('val/loss', loss, step)
-        writer.add_scalar('val/micro_f1', micro_f1, step)
-        writer.add_scalar('val/macro_f1', macro_f1, step)
-        writer.add_scalar('val/samples_f1', samples_f1, step)
-        print(f"Epoch {epoch} Val | Loss {loss:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f} | Samples F1 {samples_f1:.4f}")
+        #writer.add_scalar('val/micro_f1', micro_f1, step)
+        #writer.add_scalar('val/macro_f1', macro_f1, step)
+        #writer.add_scalar('val/samples_f1', samples_f1, step)
+        print(f"Epoch {epoch} Val | Loss {loss:.4f}")
 
         # Save Model
         if (epoch + 1) % args.save_epochs == 0:
@@ -244,6 +245,7 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         if best_loss:
             model_path = os.path.join(cwd, 'models', args.name, "best_loss.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
+        '''
         if best_micro_f1:
             model_path = os.path.join(cwd, 'models', args.name, "best_micro_f1.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
@@ -253,6 +255,7 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         if best_samples_f1:
             model_path = os.path.join(cwd, 'models', args.name, "best_samples_f1.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
+        '''
         model_path = os.path.join(cwd, 'models', args.name, "latest.pt")
         save_model(model_path, model, optimizer, epoch, metadata)
 
