@@ -51,3 +51,28 @@ python3 -m train \
     --loc_loss_alpha 1.0
 ```
 The model will be trained and saved at `models/baseline` and logged at `logs/baseline`. You can use `tensorboard --logdir logs` to view it. This command correspond to training with batch size 50, learning rate of 0.001, linearly increase learning rate from 0 to 0.001 for the first 5 epochs, training for 50 epochs, and use the localization loss.
+
+For the VirTex model, run:
+```bash
+python3 -m train \
+    --name virtex \
+    --model_type vis_virtex \
+    --bs 50 \
+    --lr 1e-3 \
+    --linear_warmup \
+    --warmup_epochs 5 \
+    --epochs 50
+```
+
+For the Swin Transformer (Small) model, run:
+```bash
+python3 -m train \
+    --name swin_small \
+    --model_type vis_swin_small \
+    --bs 50 \
+    --lr 1e-5 \
+    --wd 1e-8 \
+    --opt_type adamw \
+    --epochs 50
+```
+You can specify the optimizer type with the `--opt_type` parameter. `--wd` corresponds to the weight decay of the optimizer. Swin transformers are fine-tuned with the parameters given here on ImageNet, which we tried to use for Intentonomy as well.
