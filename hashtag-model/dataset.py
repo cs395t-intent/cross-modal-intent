@@ -4,6 +4,7 @@ import torchvision
 import sys
 
 from PIL import Image
+from PIL import ImageFile
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -67,8 +68,8 @@ class Dataset(torch.utils.data.Dataset):
                 for t in taglist:
                     vocablist.append(self.vocab[t])
                 
-                label = torch.zeros(997).type(torch.LongTensor)
-                label.scatter_(-1, torch.LongTensor(vocablist), 1)
+                label = torch.zeros(997).type(torch.FloatTensor)
+                label.scatter_(-1, torch.LongTensor(vocablist), 1.0)
                 data['label'] = label
                 
                 self.data.append(data)
@@ -84,7 +85,9 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         filename = self.data[index]['filename']
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
         img = Image.open(filename)
+        img = img.convert('RGB')
         if self.transform:
             # Can add further transformations in the get_transform() method below
             img = self.transform(img)
