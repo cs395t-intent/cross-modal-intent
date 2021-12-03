@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from PIL import Image
 from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -83,7 +84,6 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         filename = self.data[index]['filename']
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
         img = Image.open(filename)
         img = img.convert('RGB')
         if self.transform:

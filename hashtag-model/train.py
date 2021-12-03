@@ -36,7 +36,7 @@ def initialize(args):
         vocab_id = train_dataset.vocab[key]['id']
         pos_label_weights[vocab_id] = train_dataset.vocab[key]['count']
     pos_label_weights = [len(train_dataset) / weight for weight in pos_label_weights]
-    pos_label_weights = [np.log(weight) ** 1.5 for weight in pos_label_weights]
+    pos_label_weights = [(np.log(weight) ** 1.5) * 10 for weight in pos_label_weights]
     pos_label_weights = torch.tensor(pos_label_weights).to(device)
 
     #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
