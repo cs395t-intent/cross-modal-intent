@@ -2,6 +2,9 @@ import os
 import torch
 import torchvision
 import sys
+import numpy as np
+
+from tqdm import tqdm
 
 from PIL import Image
 from PIL import ImageFile
@@ -12,73 +15,68 @@ class Dataset(torch.utils.data.Dataset):
         self.transform = transform
         self.type = type
         # Parse data/tag files
-        
+
         cwd = os.getcwd()
-        
-        datafilename = os.path.join(cwd,'data_list.txt')
+
+        datafilename = os.path.join(cwd,'data_list_shuf.txt')
         datafile = open(datafilename)
-        
-        tagfilename = os.path.join(cwd,'tag_list.txt')
+
+        tagfilename = os.path.join(cwd,'tag_list_shuf.txt')
         tagfile = open(tagfilename)
-        
+
         # Create vocab dictionary
         self.vocab = {}
         vocabfile = open(os.path.join(cwd,'vocab_index.txt'))
         vocablines = vocabfile.readlines()
-        num = 0
         for line in vocablines:
-            self.vocab[line.split()[0]] = num
-            num += 1
+            token, idx = line.split()
+            self.vocab[token] = {'id': int(idx), 'count': 0}
         vocabfile.close()
-        
+
         # setup data
         self.img_dir = img_dir
         self.data = []
-        idcount = 0
-        
+
         datalines = datafile.readlines()
         taglines = tagfile.readlines()
-        
+
         # slice data in train/val set based on type
         datalen = len(datalines)
-        dataslice = datalen * 3 // 4
+        dataslice = datalen - 6000  # datalen * 3 // 4
         if self.type == 'train':
-            idcount = 0
             datalines = datalines[:dataslice]
+            taglines = taglines[:dataslice]
         elif self.type == 'val':
-            idcount = dataslice
             datalines = datalines[dataslice:]
-        
-        for line in datalines:
-            
+            taglines = taglines[dataslice:]
+
+        for id, (line, tags) in tqdm(enumerate(zip(datalines, taglines)), total=len(datalines)):
             # create dictionary for filepath and id
             data = {}
-            
+
             filename = os.path.join(self.img_dir, line.rstrip())
             #print(filename)
             data['filename'] = filename
             if os.path.exists(filename):
-                data['id'] = idcount
-                
+                if self.type == 'train':
+                    data['id'] = id
+                elif self.type == 'val':
+                    data['id'] = id + dataslice
+
                 # create label
-                tags = taglines[idcount]
-                taglist = tags.split()
+                taglist = tags.strip().split()
                 vocablist = []
-                
                 for t in taglist:
-                    vocablist.append(self.vocab[t])
-                
-                label = torch.zeros(997).type(torch.FloatTensor)
-                label.scatter_(-1, torch.LongTensor(vocablist), 1.0)
+                    vocablist.append(self.vocab[t]['id'])
+                    self.vocab[t]['count'] += 1
+                label = torch.zeros(997).type(torch.LongTensor)
+                label.scatter_(-1, torch.LongTensor(vocablist), 1)
                 data['label'] = label
-                
+
                 self.data.append(data)
             else:
                 print(f"WARNING: Skipping {filename} because it doesn't exist.", file=sys.stderr)
-                
-            idcount += 1
-            
-            
+
         datafile.close()
         tagfile.close()
         #print(self.data)

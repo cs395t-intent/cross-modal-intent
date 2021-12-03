@@ -1,6 +1,7 @@
 import argparse
 import os
 import torch
+import numpy as np
 
 from torchsummaryX import summary
 from torch.utils.tensorboard import SummaryWriter
@@ -22,17 +23,29 @@ def initialize(args):
     # Data paths
     cwd = os.getcwd()
     img_dir = os.path.join(cwd, 'HARRISON')
-    #train_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_train2020.json')
-    #val_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_val2020.json')
 
     # Training and validation set
     train_transform_type = 'train'
     if args.train_no_aug:
         train_transform_type = 'train_no_aug'
     train_dataset = Dataset(img_dir, get_transform(type=train_transform_type), type='train')
+
+    # Construct label weights for BCELoss
+    label_weights = [0 for _ in range(len(train_dataset.vocab))]
+    for key in train_dataset.vocab.keys():
+        vocab_id = train_dataset.vocab[key]['id']
+        label_weights[vocab_id] = train_dataset.vocab[key]['count']
+    label_counts = sum(label_weights)
+    label_weights = [label_counts / weight for weight in label_weights]
+    max_weight = max(label_weights)
+    label_weights = [weight / max_weight for weight in label_weights]
+    label_weights = [weight ** (1/3) for weight in label_weights]
+    label_weights = torch.tensor(label_weights).to(device)
+
     #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.bs, shuffle=True, num_workers=6, drop_last=True)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.bs, shuffle=True, num_workers=6, drop_last=False)
     val_dataset = Dataset(img_dir, get_transform(type='val'), type='val')
+    #val_dataset = torch.utils.data.Subset(val_dataset, range(64))
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.bs, shuffle=False, num_workers=6, drop_last=False)
 
     # Setup directories
@@ -59,9 +72,9 @@ def initialize(args):
     # Model specification
     model = None
     if args.model_type == 'vis_baseline':
-        model = ResNetVisualBaseline()
+        model = ResNetVisualBaseline(out_dim=997)
     elif args.model_type == 'vis_virtex':
-        model = VirtexVisual()
+        model = VirtexVisual(out_dim=997)
     elif args.model_type == 'vis_swin_tiny':
         model = SwinTransformerVisual(model_size='tiny', out_dim=997)
     elif args.model_type == 'vis_swin_small':
@@ -101,27 +114,7 @@ def initialize(args):
                 last_epoch=start_epoch*train_len - 1)
 
     # Loss function specification
-    ce_loss_fn = nn.BCELoss()
-    if args.use_loc_loss:
-        loc_loss_fn = LocalizationLoss(cam_alpha=args.loc_loss_alpha)
-
-    def loss_fn(model, batch, logits, target, ids):
-        total_loss, loss_info = 0, {}
-
-        # Binary Cross Entropy
-        sig = nn.Sigmoid()
-        ce_loss = ce_loss_fn(sig(logits), target)
-        loss_info['ce_loss'] = ce_loss
-        total_loss += ce_loss
-
-        # Localization
-        if args.use_loc_loss:
-            with torch.set_grad_enabled(True):
-                loc_loss = loc_loss_fn(model, batch, ids, target)
-            loss_info['loc_loss'] = loc_loss
-            total_loss += loc_loss
-
-        return total_loss, loss_info
+    loss_fn = nn.BCEWithLogitsLoss(weight=label_weights)
 
     return train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, \
         start_epoch, device, metadata, cwd
@@ -137,13 +130,15 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
     metadata.setdefault('train', {})
     metadata.setdefault('val', {})
     metadata['train'].setdefault('loss', [])
-    #metadata['train'].setdefault('macro_f1', [])
-    #metadata['train'].setdefault('micro_f1', [])
-    #metadata['train'].setdefault('samples_f1', [])
+    metadata['train'].setdefault('accuracy', [])
+    metadata['train'].setdefault('macro_f1', [])
+    metadata['train'].setdefault('micro_f1', [])
+    metadata['train'].setdefault('samples_f1', [])
     metadata['val'].setdefault('loss', [])
-    #metadata['val'].setdefault('macro_f1', [])
-    #metadata['val'].setdefault('micro_f1', [])
-    #metadata['val'].setdefault('samples_f1', [])
+    metadata['val'].setdefault('accuracy', [])
+    metadata['val'].setdefault('macro_f1', [])
+    metadata['val'].setdefault('micro_f1', [])
+    metadata['val'].setdefault('samples_f1', [])
 
     # Loop over epochs
     model = model.to(device)
@@ -151,7 +146,7 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
     for epoch in range(start_epoch, args.epochs):
         # Training
         model.train()
-        train_losses, train_preds, train_targets = [], [], []
+        train_losses, train_count, train_preds, train_targets = [], [], [], []
         for local_batch, local_labels, ids in tqdm(train_dataloader):
             # Log the LR to be used
             if scheduler is not None:
@@ -159,7 +154,7 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
 
             local_batch, local_labels = local_batch.to(device), local_labels.to(device)
             logits = model(local_batch)
-            loss, loss_info = loss_fn(model, local_batch, logits, local_labels, ids)
+            loss = loss_fn(logits, local_labels.float())
 
             # Backprop
             optimizer.zero_grad()
@@ -170,73 +165,76 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
 
             # Log everything
             loss = loss.detach().cpu().numpy()
-            preds = torch.nn.functional.softmax(logits.detach().cpu(), dim=-1)
-            preds = (preds >= 1/28).type(torch.LongTensor).tolist()
-            targets = (local_labels.detach().cpu() >= 1/997).type(torch.LongTensor).tolist()
-            train_losses.append(loss)
+            preds = torch.sigmoid(logits.detach().cpu())
+            preds = (preds >= 0.5).type(torch.LongTensor).tolist()
+            targets = local_labels.detach().cpu().tolist()
+            train_losses.append(loss * local_batch.shape[0])
+            train_count.append(local_batch.shape[0])
             train_preds.extend(preds)
             train_targets.extend(targets)
             writer.add_scalar('train/loss', loss, step)
-            for key in loss_info:
-                part_loss = loss_info[key].detach().cpu().numpy()
-                writer.add_scalar(f'train/{key}', part_loss, step)
-
             step += 1
 
         # Train Metadata Logs
-        loss = sum(train_losses) / len(train_losses)
-        #micro_f1 = f1_score(train_targets, train_preds, average='micro')
-        #macro_f1 = f1_score(train_targets, train_preds, average='macro')
-        #samples_f1 = f1_score(train_targets, train_preds, average='samples')
+        loss = sum(train_losses) / sum(train_count)
+        correct = np.array(train_preds, dtype=np.uint8) == np.array(train_targets, dtype=np.uint8)
+        accuracy = correct.sum() / np.prod(correct.shape)
+        micro_f1 = f1_score(train_targets, train_preds, average='micro')
+        macro_f1 = f1_score(train_targets, train_preds, average='macro')
+        samples_f1 = f1_score(train_targets, train_preds, average='samples')
         metadata['train']['loss'].append(loss)
-        #metadata['train']['micro_f1'].append(micro_f1)
-        #metadata['train']['macro_f1'].append(macro_f1)
-        #metadata['train']['samples_f1'].append(samples_f1)
-        #writer.add_scalar('train/micro_f1', micro_f1, step)
-        #writer.add_scalar('train/macro_f1', macro_f1, step)
-        #writer.add_scalar('train/samples_f1', samples_f1, step)
-        print(f"Epoch {epoch} Train | Loss {loss:.4f}")
+        metadata['train']['accuracy'].append(accuracy)
+        metadata['train']['micro_f1'].append(micro_f1)
+        metadata['train']['macro_f1'].append(macro_f1)
+        metadata['train']['samples_f1'].append(samples_f1)
+        writer.add_scalar('train/accuracy', accuracy, step)
+        writer.add_scalar('train/micro_f1', micro_f1, step)
+        writer.add_scalar('train/macro_f1', macro_f1, step)
+        writer.add_scalar('train/samples_f1', samples_f1, step)
+        print(f"Epoch {epoch} Train | Loss {loss:.4f} | Accuracy {accuracy:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f} | Samples F1 {samples_f1:.4f}")
 
         # Validation
         with torch.set_grad_enabled(False):
             model.eval()
             val_losses, val_count, val_preds, val_targets = [], [], [], []
             for local_batch, local_labels, ids in tqdm(val_dataloader):
-                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                local_batch = local_batch.to(device)
+                local_labels = local_labels.to(device)
 
                 # Log everything
                 logits = model(local_batch)
-                loss, loss_info = loss_fn(model, local_batch, logits,
-                                  local_labels,
-                                  ids)
+                loss = loss_fn(logits, local_labels.float())
                 loss = loss.detach().cpu().numpy()
-                for key in loss_info:
-                    loss_info[key].detach().cpu()
-                preds = torch.nn.functional.softmax(logits.detach().cpu(), dim=-1)
-                preds = (preds >= 1/997).type(torch.LongTensor).tolist()
+                preds = torch.sigmoid(logits.detach().cpu())
+                preds = (preds >= 0.5).type(torch.LongTensor).tolist()
                 val_losses.append(loss * local_batch.shape[0])
                 val_count.append(local_batch.shape[0])
                 val_preds.extend(preds)
-                val_targets.extend(local_labels.tolist())
+                val_targets.extend(local_labels.detach().cpu().tolist())
 
         # Validation Metadata Logs
         loss = sum(val_losses) / sum(val_count)
-        #micro_f1 = f1_score(val_targets, val_preds, average='micro')
-        #macro_f1 = f1_score(val_targets, val_preds, average='macro')
-        #samples_f1 = f1_score(val_targets, val_preds, average='samples')
-        best_loss = loss < min(metadata['val']['loss'], default=10000)
-        #best_micro_f1 = micro_f1 > max(metadata['val']['micro_f1'], default=0)
-        #best_macro_f1 = macro_f1 > max(metadata['val']['macro_f1'], default=0)
-        #best_samples_f1 = samples_f1 > max(metadata['val']['samples_f1'], default=0)
+        correct = np.array(val_preds, dtype=np.uint8) == np.array(val_targets, dtype=np.uint8)
+        accuracy = correct.sum() / np.prod(correct.shape)
+        micro_f1 = f1_score(val_targets, val_preds, average='micro')
+        macro_f1 = f1_score(val_targets, val_preds, average='macro')
+        samples_f1 = f1_score(val_targets, val_preds, average='samples')
+        best_loss = loss < min(metadata['val']['loss'], default=1000000000)
+        best_accuracy = accuracy > max(metadata['val']['accuracy'], default=0)
+        best_micro_f1 = micro_f1 > max(metadata['val']['micro_f1'], default=0)
+        best_macro_f1 = macro_f1 > max(metadata['val']['macro_f1'], default=0)
+        best_samples_f1 = samples_f1 > max(metadata['val']['samples_f1'], default=0)
         metadata['val']['loss'].append(loss)
-        #metadata['val']['micro_f1'].append(micro_f1)
-        #metadata['val']['macro_f1'].append(macro_f1)
-        #metadata['val']['samples_f1'].append(samples_f1)
+        metadata['val']['accuracy'].append(accuracy)
+        metadata['val']['micro_f1'].append(micro_f1)
+        metadata['val']['macro_f1'].append(macro_f1)
+        metadata['val']['samples_f1'].append(samples_f1)
         writer.add_scalar('val/loss', loss, step)
-        #writer.add_scalar('val/micro_f1', micro_f1, step)
-        #writer.add_scalar('val/macro_f1', macro_f1, step)
-        #writer.add_scalar('val/samples_f1', samples_f1, step)
-        print(f"Epoch {epoch} Val | Loss {loss:.4f}")
+        writer.add_scalar('val/accuracy', accuracy, step)
+        writer.add_scalar('val/micro_f1', micro_f1, step)
+        writer.add_scalar('val/macro_f1', macro_f1, step)
+        writer.add_scalar('val/samples_f1', samples_f1, step)
+        print(f"Epoch {epoch} Val | Loss {loss:.4f} | Accuracy {accuracy:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f} | Samples F1 {samples_f1:.4f}")
 
         # Save Model
         if (epoch + 1) % args.save_epochs == 0:
@@ -245,7 +243,9 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         if best_loss:
             model_path = os.path.join(cwd, 'models', args.name, "best_loss.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
-        '''
+        if best_accuracy:
+            model_path = os.path.join(cwd, 'models', args.name, "best_accuracy.pt")
+            save_model(model_path, model, optimizer, epoch, metadata)
         if best_micro_f1:
             model_path = os.path.join(cwd, 'models', args.name, "best_micro_f1.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
@@ -255,7 +255,6 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         if best_samples_f1:
             model_path = os.path.join(cwd, 'models', args.name, "best_samples_f1.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
-        '''
         model_path = os.path.join(cwd, 'models', args.name, "latest.pt")
         save_model(model_path, model, optimizer, epoch, metadata)
 
@@ -300,11 +299,6 @@ if __name__ == "__main__":
     # Dataset Params
     parser.add_argument('--train_no_aug', help='do not use data augmentation during training',
                         action='store_true')
-
-    # Loss Params
-    parser.add_argument('--use_loc_loss', help='use localization loss', action='store_true')
-    parser.add_argument('--loc_loss_alpha', help='localization loss weight', type=float,
-                        default=1.0)
 
     args = parser.parse_args()
 
