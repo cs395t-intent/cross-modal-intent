@@ -5,7 +5,7 @@ import numpy as np
 
 from torchsummaryX import summary
 from torch.utils.tensorboard import SummaryWriter
-from sklearn.metrics import f1_score
+from sklearn.metrics import precision_score, f1_score
 from tqdm import tqdm
 
 from dataset import Dataset, get_transform
@@ -31,16 +31,13 @@ def initialize(args):
     train_dataset = Dataset(img_dir, get_transform(type=train_transform_type), type='train')
 
     # Construct label weights for BCELoss
-    label_weights = [0 for _ in range(len(train_dataset.vocab))]
+    pos_label_weights = [0 for _ in range(len(train_dataset.vocab))]
     for key in train_dataset.vocab.keys():
         vocab_id = train_dataset.vocab[key]['id']
-        label_weights[vocab_id] = train_dataset.vocab[key]['count']
-    label_counts = sum(label_weights)
-    label_weights = [label_counts / weight for weight in label_weights]
-    max_weight = max(label_weights)
-    label_weights = [weight / max_weight for weight in label_weights]
-    label_weights = [weight ** (1/3) for weight in label_weights]
-    label_weights = torch.tensor(label_weights).to(device)
+        pos_label_weights[vocab_id] = train_dataset.vocab[key]['count']
+    pos_label_weights = [len(train_dataset) / weight for weight in pos_label_weights]
+    pos_label_weights = [np.log(weight) ** 1.5 for weight in pos_label_weights]
+    pos_label_weights = torch.tensor(pos_label_weights).to(device)
 
     #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.bs, shuffle=True, num_workers=6, drop_last=False)
@@ -114,7 +111,7 @@ def initialize(args):
                 last_epoch=start_epoch*train_len - 1)
 
     # Loss function specification
-    loss_fn = nn.BCEWithLogitsLoss(weight=label_weights)
+    loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_label_weights)
 
     return train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, \
         start_epoch, device, metadata, cwd
@@ -131,14 +128,16 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
     metadata.setdefault('val', {})
     metadata['train'].setdefault('loss', [])
     metadata['train'].setdefault('accuracy', [])
+    metadata['train'].setdefault('macro_precision', [])
+    metadata['train'].setdefault('micro_precision', [])
     metadata['train'].setdefault('macro_f1', [])
     metadata['train'].setdefault('micro_f1', [])
-    metadata['train'].setdefault('samples_f1', [])
     metadata['val'].setdefault('loss', [])
     metadata['val'].setdefault('accuracy', [])
     metadata['val'].setdefault('macro_f1', [])
     metadata['val'].setdefault('micro_f1', [])
-    metadata['val'].setdefault('samples_f1', [])
+    metadata['val'].setdefault('macro_precision', [])
+    metadata['val'].setdefault('micro_precision', [])
 
     # Loop over epochs
     model = model.to(device)
@@ -181,17 +180,20 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         accuracy = correct.sum() / np.prod(correct.shape)
         micro_f1 = f1_score(train_targets, train_preds, average='micro')
         macro_f1 = f1_score(train_targets, train_preds, average='macro')
-        samples_f1 = f1_score(train_targets, train_preds, average='samples')
+        micro_precision = precision_score(train_targets, train_preds, average='micro')
+        macro_precision = precision_score(train_targets, train_preds, average='macro')
         metadata['train']['loss'].append(loss)
         metadata['train']['accuracy'].append(accuracy)
+        metadata['train']['micro_precision'].append(micro_precision)
+        metadata['train']['macro_precision'].append(macro_precision)
         metadata['train']['micro_f1'].append(micro_f1)
         metadata['train']['macro_f1'].append(macro_f1)
-        metadata['train']['samples_f1'].append(samples_f1)
         writer.add_scalar('train/accuracy', accuracy, step)
         writer.add_scalar('train/micro_f1', micro_f1, step)
         writer.add_scalar('train/macro_f1', macro_f1, step)
-        writer.add_scalar('train/samples_f1', samples_f1, step)
-        print(f"Epoch {epoch} Train | Loss {loss:.4f} | Accuracy {accuracy:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f} | Samples F1 {samples_f1:.4f}")
+        writer.add_scalar('train/micro_precision', micro_precision, step)
+        writer.add_scalar('train/macro_precision', macro_precision, step)
+        print(f"Epoch {epoch} Train | Loss {loss:.4f} | Accuracy {accuracy:.4f} | Micro Precision {micro_precision:.4f} | Macro Precision {macro_precision:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f}")
 
         # Validation
         with torch.set_grad_enabled(False):
@@ -216,25 +218,29 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         loss = sum(val_losses) / sum(val_count)
         correct = np.array(val_preds, dtype=np.uint8) == np.array(val_targets, dtype=np.uint8)
         accuracy = correct.sum() / np.prod(correct.shape)
+        micro_precision = precision_score(val_targets, val_preds, average='micro')
+        macro_precision = precision_score(val_targets, val_preds, average='macro')
         micro_f1 = f1_score(val_targets, val_preds, average='micro')
         macro_f1 = f1_score(val_targets, val_preds, average='macro')
-        samples_f1 = f1_score(val_targets, val_preds, average='samples')
         best_loss = loss < min(metadata['val']['loss'], default=1000000000)
         best_accuracy = accuracy > max(metadata['val']['accuracy'], default=0)
+        best_micro_precision = micro_precision > max(metadata['val']['micro_precision'], default=0)
+        best_macro_precision = macro_precision > max(metadata['val']['macro_precision'], default=0)
         best_micro_f1 = micro_f1 > max(metadata['val']['micro_f1'], default=0)
         best_macro_f1 = macro_f1 > max(metadata['val']['macro_f1'], default=0)
-        best_samples_f1 = samples_f1 > max(metadata['val']['samples_f1'], default=0)
         metadata['val']['loss'].append(loss)
         metadata['val']['accuracy'].append(accuracy)
         metadata['val']['micro_f1'].append(micro_f1)
         metadata['val']['macro_f1'].append(macro_f1)
-        metadata['val']['samples_f1'].append(samples_f1)
+        metadata['val']['micro_precision'].append(micro_precision)
+        metadata['val']['macro_precision'].append(macro_precision)
         writer.add_scalar('val/loss', loss, step)
         writer.add_scalar('val/accuracy', accuracy, step)
+        writer.add_scalar('val/micro_precision', micro_precision, step)
+        writer.add_scalar('val/macro_precision', macro_precision, step)
         writer.add_scalar('val/micro_f1', micro_f1, step)
         writer.add_scalar('val/macro_f1', macro_f1, step)
-        writer.add_scalar('val/samples_f1', samples_f1, step)
-        print(f"Epoch {epoch} Val | Loss {loss:.4f} | Accuracy {accuracy:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f} | Samples F1 {samples_f1:.4f}")
+        print(f"Epoch {epoch} Val | Loss {loss:.4f} | Accuracy {accuracy:.4f} | Micro Precision {micro_precision:.4f} | Macro Precision {macro_precision:.4f} | Micro F1 {micro_f1:.4f} | Macro F1 {macro_f1:.4f}")
 
         # Save Model
         if (epoch + 1) % args.save_epochs == 0:
@@ -246,14 +252,17 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         if best_accuracy:
             model_path = os.path.join(cwd, 'models', args.name, "best_accuracy.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
+        if best_micro_precision:
+            model_path = os.path.join(cwd, 'models', args.name, "best_micro_precision.pt")
+            save_model(model_path, model, optimizer, epoch, metadata)
+        if best_macro_precision:
+            model_path = os.path.join(cwd, 'models', args.name, "best_macro_precision.pt")
+            save_model(model_path, model, optimizer, epoch, metadata)
         if best_micro_f1:
             model_path = os.path.join(cwd, 'models', args.name, "best_micro_f1.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
         if best_macro_f1:
             model_path = os.path.join(cwd, 'models', args.name, "best_macro_f1.pt")
-            save_model(model_path, model, optimizer, epoch, metadata)
-        if best_samples_f1:
-            model_path = os.path.join(cwd, 'models', args.name, "best_samples_f1.pt")
             save_model(model_path, model, optimizer, epoch, metadata)
         model_path = os.path.join(cwd, 'models', args.name, "latest.pt")
         save_model(model_path, model, optimizer, epoch, metadata)
