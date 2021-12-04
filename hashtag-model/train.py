@@ -36,7 +36,7 @@ def initialize(args):
         vocab_id = train_dataset.vocab[key]['id']
         pos_label_weights[vocab_id] = train_dataset.vocab[key]['count']
     pos_label_weights = [len(train_dataset) / weight for weight in pos_label_weights]
-    pos_label_weights = [np.log(weight) ** 1.5 for weight in pos_label_weights]
+    pos_label_weights = [(np.log(weight) ** 1.5) * args.pos_weight_alpha for weight in pos_label_weights]
     pos_label_weights = torch.tensor(pos_label_weights).to(device)
 
     #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
@@ -111,7 +111,10 @@ def initialize(args):
                 last_epoch=start_epoch*train_len - 1)
 
     # Loss function specification
-    loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_label_weights)
+    if args.use_pos_weight:
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_label_weights)
+    else:
+        loss_fn = nn.BCEWithLogitsLoss()
 
     return train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn, \
         start_epoch, device, metadata, cwd
@@ -304,6 +307,10 @@ if __name__ == "__main__":
                         default=5)
     parser.add_argument('--epochs', help='train epochs', type=int,
                         default=50)
+    parser.add_argument('--use_pos_weight', help='use weights for positive samples',
+                        action='store_true')
+    parser.add_argument('--pos_weight_alpha', help='multiplier to positive samples weight', type=float,
+                        default=1.0)
 
     # Dataset Params
     parser.add_argument('--train_no_aug', help='do not use data augmentation during training',
