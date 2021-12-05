@@ -22,17 +22,18 @@ def initialize(args):
     # Data paths
     cwd = os.getcwd()
     img_dir = os.path.join(cwd, 'data', '2020intent', 'images', 'low')
-    train_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_train2020.json')
-    val_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_val2020.json')
+    train_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_train2020_ht_bert.json')
+    val_annotation_path = os.path.join(cwd, 'data', '2020intent', 'annotations', 'intentonomy_val2020_ht_bert.json')
 
     # Training and validation set
     train_transform_type = 'train'
     if args.train_no_aug:
         train_transform_type = 'train_no_aug'
-    train_dataset = Dataset(img_dir, train_annotation_path, get_transform(type=train_transform_type), type='train')
-    #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
+    train_dataset = Dataset(img_dir, train_annotation_path, get_transform(type=train_transform_type), type='train', use_hashtags=args.use_hashtags)
+    train_dataset = torch.utils.data.Subset(train_dataset, range(64))
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.bs, shuffle=True, num_workers=6, drop_last=True)
-    val_dataset = Dataset(img_dir, val_annotation_path, get_transform(type='val'), type='val')
+    val_dataset = Dataset(img_dir, val_annotation_path, get_transform(type='val'), type='val', use_hashtags=args.use_hashtags)
+    val_dataset = torch.utils.data.Subset(val_dataset, range(64))
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.bs, shuffle=False, num_workers=6, drop_last=False)
 
     # Setup directories
@@ -60,14 +61,24 @@ def initialize(args):
     model = None
     if args.model_type == 'vis_baseline':
         model = ResNetVisualBaseline()
+    elif args.model_type == 'baseline':
+        model = ResNetBaseline()
     elif args.model_type == 'vis_virtex':
         model = VirtexVisual()
+    elif args.model_type == 'virtex':
+        model = Virtex()
     elif args.model_type == 'vis_swin_tiny':
         model = SwinTransformerVisual(model_size='tiny')
     elif args.model_type == 'vis_swin_small':
         model = SwinTransformerVisual(model_size='small')
     elif args.model_type == 'vis_swin_base':
         model = SwinTransformerVisual(model_size='base')
+    elif args.model_type == 'swin_tiny':
+        model = SwinTransformer(model_size='tiny')
+    elif args.model_type == 'swin_small':
+        model = SwinTransformer(model_size='small')
+    elif args.model_type == 'swin_base':
+        model = SwinTransformer(model_size='base')
     else:
         raise NotImplementedError("Other models are not implemented.")
     if checkpoint is not None:
@@ -151,14 +162,19 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         # Training
         model.train()
         train_losses, train_preds, train_targets = [], [], []
-        for local_batch, local_labels, ids in tqdm(train_dataloader):
+        for local_batch, local_ht_embeds, local_labels, ids in tqdm(train_dataloader):
             # Log the LR to be used
             if scheduler is not None:
                 writer.add_scalar('lr', scheduler.get_last_lr()[0], step)
 
             local_batch, local_labels = local_batch.to(device), local_labels.to(device)
-            logits = model(local_batch)
-            loss, loss_info = loss_fn(model, local_batch, logits, local_labels, ids)
+            if args.use_hashtags:
+                local_ht_embeds = local_ht_embeds.to(device)
+                logits = model(local_batch, local_ht_embeds)
+                loss, loss_info = loss_fn(model, (local_batch, local_ht_embeds), logits, local_labels, ids)
+            else:
+                logits = model(local_batch)
+                loss, loss_info = loss_fn(model, local_batch, logits, local_labels, ids)
 
             # Backprop
             optimizer.zero_grad()
@@ -200,14 +216,21 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         with torch.set_grad_enabled(False):
             model.eval()
             val_losses, val_count, val_preds, val_targets = [], [], [], []
-            for local_batch, local_labels, ids in tqdm(val_dataloader):
+            for local_batch, local_ht_embeds, local_labels, ids in tqdm(val_dataloader):
                 local_batch = local_batch.to(device)
 
                 # Log everything
-                logits = model(local_batch)
-                loss, loss_info = loss_fn(model, local_batch, logits,
-                                  (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
-                                  ids)
+                if args.use_hashtags:
+                    local_ht_embeds = local_ht_embeds.to(device)
+                    logits = model(local_batch, local_ht_embeds)
+                    loss, loss_info = loss_fn(model, (local_batch, local_ht_embeds), logits,
+                                      (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
+                                      ids)
+                else:
+                    logits = model(local_batch)
+                    loss, loss_info = loss_fn(model, local_batch, logits,
+                                      (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
+                                      ids)
                 loss = loss.detach().cpu().numpy()
                 for key in loss_info:
                     loss_info[key].detach().cpu()
@@ -264,7 +287,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Train Params
-    parser.add_argument('--model_type', help='model type from model.py', choices=['vis_baseline', 'vis_virtex', 'vis_swin_tiny', 'vis_swin_small', 'vis_swin_base'],
+    parser.add_argument('--model_type', help='model type from model.py', choices=['vis_baseline', 'vis_virtex', 'vis_swin_tiny', 'vis_swin_small', 'vis_swin_base', 'baseline', 'virtex', 'swin_tiny', 'swin_small', 'swin_base'],
                         default='vis_baseline')
     parser.add_argument('--name', help='name of the model, saved at models/',
                         default='model')
@@ -297,6 +320,8 @@ if __name__ == "__main__":
     # Dataset Params
     parser.add_argument('--train_no_aug', help='do not use data augmentation during training',
                         action='store_true')
+    parser.add_argument('--use_hashtags', help='use hashtags',
+                        action='store_true')
 
     # Loss Params
     parser.add_argument('--use_loc_loss', help='use localization loss', action='store_true')
@@ -311,7 +336,10 @@ if __name__ == "__main__":
 
     # Get model summary
     model.eval()
-    summary(model, torch.zeros(args.bs, 3, 224, 224))
+    if args.use_hashtags:
+        summary(model, torch.zeros(args.bs, 3, 224, 224), embed=torch.zeros(args.bs, 768))
+    else:
+        summary(model, torch.zeros(args.bs, 3, 224, 224))
     print(model)
 
     # Train the model

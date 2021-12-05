@@ -84,12 +84,17 @@ class LocalizationLoss(nn.Module):
         #    layer = model.feature_getter.model.layer4
         if isinstance(model, ResNetVisualBaseline) or isinstance(model, VirtexVisual):
             layer = model.model.layer4
+        elif isinstance(model, ResNetBaseline) or isinstance(model, Virtex):
+            layer = model.img_model.layer4
         else:
             raise Exception("Localization loss not implemented for model.")
 
         with GradCam(model, [layer]) as gcam:
             if isinstance(model, ResNetVisualBaseline) or isinstance(model, VirtexVisual):
                 out_b = gcam(X) # [bs, C]
+                out_b[:, cls_idx].mean().backward()
+            elif isinstance(X, tuple):
+                out_b = gcam(*X)
                 out_b[:, cls_idx].mean().backward()
             else:
                 raise Exception("Localization loss not implemented for model.")

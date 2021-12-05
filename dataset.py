@@ -5,18 +5,20 @@ import json
 import sys
 
 from PIL import Image
+from tqdm import tqdm
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, img_dir, annotation_path, transform=None, type='train'):
+    def __init__(self, img_dir, annotation_path, transform=None, type='train', use_hashtags=False):
         self.transform = transform
         self.type = type
+        self.use_hashtags = use_hashtags
         # Parse json file and extract the IDs for each image
         file = open(annotation_path)
         self.annotations = json.load(file)
         self.img_dir = img_dir
         self.data = []
-        for annotation in self.annotations['annotations']:
+        for annotation in tqdm(self.annotations['annotations']):
             id = annotation['image_id']
             # Now add '.jpg' to each ID and join with the image directory to get each image filename
             filename = os.path.join(self.img_dir, id + '.jpg')
@@ -33,6 +35,9 @@ class Dataset(torch.utils.data.Dataset):
                     label.scatter_(-1, torch.LongTensor(annotation['category_ids']), 1)
                 data['label'] = label
 
+                if use_hashtags:
+                    data['embed'] = torch.tensor(annotation['embed'])
+
                 self.data.append(data)
             else:
                 print(f"WARNING: Skipping {filename} because it doesn't exist.", file=sys.stderr)
@@ -46,7 +51,10 @@ class Dataset(torch.utils.data.Dataset):
             img = self.transform(img)
         label = self.data[index]['label']
         id = self.data[index]['id']
-        return img, label, id
+        if self.use_hashtags:
+            embed = self.data[index]['embed']
+            return img, embed, label, id
+        return img, None, label, id
 
     def __len__(self):
         return len(self.data)
