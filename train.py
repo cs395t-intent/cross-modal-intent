@@ -30,10 +30,10 @@ def initialize(args):
     if args.train_no_aug:
         train_transform_type = 'train_no_aug'
     train_dataset = Dataset(img_dir, train_annotation_path, get_transform(type=train_transform_type), type='train', use_hashtags=args.use_hashtags)
-    train_dataset = torch.utils.data.Subset(train_dataset, range(64))
+    #train_dataset = torch.utils.data.Subset(train_dataset, range(64))
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.bs, shuffle=True, num_workers=6, drop_last=True)
     val_dataset = Dataset(img_dir, val_annotation_path, get_transform(type='val'), type='val', use_hashtags=args.use_hashtags)
-    val_dataset = torch.utils.data.Subset(val_dataset, range(64))
+    #val_dataset = torch.utils.data.Subset(val_dataset, range(64))
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.bs, shuffle=False, num_workers=6, drop_last=False)
 
     # Setup directories
