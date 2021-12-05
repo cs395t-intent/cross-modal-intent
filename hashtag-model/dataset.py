@@ -124,3 +124,54 @@ def get_transform(type):
         ]),
     }
     return data_transforms[type]
+
+
+if __name__ == "__main__":
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    cwd = os.getcwd()
+    img_dir = os.path.join(cwd, "HARRISON")
+    train = Dataset(img_dir, type="train")
+    val = Dataset(img_dir, type="val")
+
+    x = np.arange(997)
+    vocab = ["" for _ in range(997)]
+    counts = [0 for _ in range(997)]
+    for key in train.vocab:
+        vocab[train.vocab[key]['id']] = key
+        counts[train.vocab[key]['id']] = train.vocab[key]['count']
+    print(f"strawberry: {train.vocab['strawberry']['count']}")
+    print(f"icecream: {train.vocab['icecream']['count']}")
+
+    fig, ax = plt.subplots(figsize=(10, 2))
+    ax.bar(x[:30], counts[:30], tick_label=vocab[:30])
+    plt.xticks(rotation="vertical")
+    fig.tight_layout()
+    fig.savefig("figs/train_distribution_common.jpg")
+    plt.clf()
+
+    fig, ax = plt.subplots(figsize=(10, 2))
+    ax.bar(x[-30:], counts[-30:], tick_label=vocab[-30:])
+    plt.xticks(rotation="vertical")
+    fig.tight_layout()
+    fig.savefig("figs/train_distribution_uncommon.jpg")
+    plt.clf()
+
+    for key in val.vocab:
+        counts[val.vocab[key]['id']] = val.vocab[key]['count']
+
+    fig, ax = plt.subplots(figsize=(10, 2))
+    ax.bar(x[:30], counts[:30], tick_label=vocab[:30])
+    plt.xticks(rotation="vertical")
+    fig.tight_layout()
+    fig.savefig("figs/val_distribution_common.jpg")
+    plt.clf()
+
+    fig, ax = plt.subplots(figsize=(10, 2))
+    ax.bar(x[-30:], counts[-30:], tick_label=vocab[-30:])
+    plt.xticks(rotation="vertical")
+    fig.tight_layout()
+    fig.savefig("figs/val_distribution_uncommon.jpg")
+    plt.clf()
