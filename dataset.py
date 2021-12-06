@@ -54,7 +54,7 @@ class Dataset(torch.utils.data.Dataset):
         if self.use_hashtags:
             embed = self.data[index]['embed']
             return img, embed, label, id
-        return img, None, label, id
+        return img, label, id
 
     def __len__(self):
         return len(self.data)

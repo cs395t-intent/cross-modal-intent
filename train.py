@@ -162,17 +162,20 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         # Training
         model.train()
         train_losses, train_preds, train_targets = [], [], []
-        for local_batch, local_ht_embeds, local_labels, ids in tqdm(train_dataloader):
+        for values in tqdm(train_dataloader):
             # Log the LR to be used
             if scheduler is not None:
                 writer.add_scalar('lr', scheduler.get_last_lr()[0], step)
 
-            local_batch, local_labels = local_batch.to(device), local_labels.to(device)
             if args.use_hashtags:
+                local_batch, local_ht_embeds, local_labels, ids = values
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 local_ht_embeds = local_ht_embeds.to(device)
                 logits = model(local_batch, local_ht_embeds)
                 loss, loss_info = loss_fn(model, (local_batch, local_ht_embeds), logits, local_labels, ids)
             else:
+                local_batch, local_labels, ids = values
+                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
                 logits = model(local_batch)
                 loss, loss_info = loss_fn(model, local_batch, logits, local_labels, ids)
 
@@ -216,17 +219,19 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
         with torch.set_grad_enabled(False):
             model.eval()
             val_losses, val_count, val_preds, val_targets = [], [], [], []
-            for local_batch, local_ht_embeds, local_labels, ids in tqdm(val_dataloader):
+            for values in tqdm(val_dataloader):
                 local_batch = local_batch.to(device)
 
                 # Log everything
                 if args.use_hashtags:
+                    local_batch, local_ht_embeds, local_labels, ids = values
                     local_ht_embeds = local_ht_embeds.to(device)
                     logits = model(local_batch, local_ht_embeds)
                     loss, loss_info = loss_fn(model, (local_batch, local_ht_embeds), logits,
                                       (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
                                       ids)
                 else:
+                    local_batch, local_labels, ids = values
                     logits = model(local_batch)
                     loss, loss_info = loss_fn(model, local_batch, logits,
                                       (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
