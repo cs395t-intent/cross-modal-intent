@@ -41,6 +41,7 @@ def eval_all_metrics(
         "val_macro": f1_dict["macro"], "val_none": f1_dict["none"],
         "test_micro": test_micro, "test_samples": test_samples,
         "test_macro": test_macro, "test_none": test_none,
+        "threshold": f1_dict["threshold"],
     }
 
 
