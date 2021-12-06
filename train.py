@@ -220,11 +220,10 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
             model.eval()
             val_losses, val_count, val_preds, val_targets = [], [], [], []
             for values in tqdm(val_dataloader):
-                local_batch = local_batch.to(device)
-
                 # Log everything
                 if args.use_hashtags:
                     local_batch, local_ht_embeds, local_labels, ids = values
+                    local_batch = local_batch.to(device)
                     local_ht_embeds = local_ht_embeds.to(device)
                     logits = model(local_batch, local_ht_embeds)
                     loss, loss_info = loss_fn(model, (local_batch, local_ht_embeds), logits,
@@ -232,6 +231,7 @@ def train(train_dataloader, val_dataloader, model, optimizer, scheduler, loss_fn
                                       ids)
                 else:
                     local_batch, local_labels, ids = values
+                    local_batch = local_batch.to(device)
                     logits = model(local_batch)
                     loss, loss_info = loss_fn(model, local_batch, logits,
                                       (local_labels / torch.sum(local_labels, dim=-1)[:, None]).to(device),
